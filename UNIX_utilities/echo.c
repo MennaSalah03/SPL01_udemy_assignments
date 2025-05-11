@@ -7,25 +7,23 @@
 
 int main(int argc, char **argv)
 {
-    if (argc == 1)
+    int newline = 1;
+
+    if (strcmp(argv[1], "-n") == 0)
     {
-        exit(-1);
+        newline = 0;
+        argc--;
+        argv++; // increments pointer to next token
     }
-    char nxt_scp = '\0';
     for (int i = 1; i < argc; i++)
     {
-        for (int j = 0; j < strlen(argv[i]); j++)
-        {
-            if(argv[i][j] == '/')
-            {
-                nxt_scp = argv[i][j + 1];
-            }
-        }
         write(1, argv[i], strlen(argv[i]));
         if (i != argc - 1)
         {
             write(1, " ", 1);
         }
     }
+    if (newline)
+        putchar('\n');
     return 0;
 }

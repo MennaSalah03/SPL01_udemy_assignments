@@ -17,19 +17,19 @@ int main(int argc, char **argv)
 
     if (argc != 3)
     {
-        printf("Not enough arguments given\n");
+        perror("Not enough arguments given\n");
         exit(WRONG_INPUT);
     }
     
     if ((fd1 = open(argv[1], O_RDONLY)) < 0)
     {
-        printf("file <%s> failed to open\n", argv[1]);
+        perror("To-be-read file failed to open\n");
         exit(OPEN_FAIL);
     }
 
-    if ((fd2 = open(argv[2], O_RDWR | O_CREAT | O_TRUNC, 644)) < 0)
+    if ((fd2 = open(argv[2], O_RDWR | O_CREAT | O_TRUNC, 0644)) < 0)
     {
-        printf("file <%s> failed to open\n", argv[2]);
+        perror("To-be-written file failed to open\n");
         exit(OPEN_FAIL);
     }
     while((count_r = read(fd1, buff, COUNT)) > 0)
@@ -37,7 +37,7 @@ int main(int argc, char **argv)
         if ((count_w = write(fd2, buff, count_r)) < 0)
         {
             
-            printf("Writing failed %d\n", count_w);
+            perror("Writing failed\n");
             close(fd1);
             close(fd2);
             exit(EXIT_FAILURE);
