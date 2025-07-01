@@ -4,18 +4,21 @@
 #include <string.h>
 #include <sys/wait.h>
 
-int char_detect(char chr, char *string);
+int assign_detect(char *string);
 extern char **environ;
 
-//picoshell_main
+//nanoshell_main
 int main(int argc, char **argv)
 {
     int buff_size = 1024; 
     int args_num = 64;
+    int max_vars = 3;
     char *buffer =(char *) malloc(buff_size);
     char **args = (char **) malloc(args_num * sizeof(char *));
-    char **loc_vars = (char **) malloc(3 * sizeof(char *));
+    char **loc_vars = (char **) malloc(max_vars * sizeof(char *));
     int i = 0;
+    int loc_var_count = 0;
+    int var_exists = 0;
     int status = 0; // 0 is success
 
     if (loc_vars == NULL) {
@@ -31,18 +34,14 @@ int main(int argc, char **argv)
         printf("nano-mennux > ");
         fflush(stdout);
         if (fgets(buffer, buff_size, stdin) == NULL)
-        {
             break; 
-        }
 
         while (strchr(buffer, '\n') == NULL && !feof(stdin))
         {
             buff_size *= 2;
             buffer = (char *) realloc(buffer, buff_size);
             if (!fgets(buffer + strlen(buffer), buff_size - strlen(buffer), stdin))
-            {
                 break;
-            }
         }
 
         buffer[strlen(buffer) - 1] = 0; // Remove newline
@@ -52,7 +51,6 @@ int main(int argc, char **argv)
         }
 
         // Parse input into arguments
-        int i = 0;
         char *token = strtok(buffer, " ");
         while (token != NULL) {
             if (i >= args_num - 1)
@@ -67,16 +65,44 @@ int main(int argc, char **argv)
 
         if (strcmp(args[0], "echo") == 0)
         {
-            for (int j = 1; args[j] != NULL; j++)
+            for (int arg = 1; args[arg] != NULL; arg++)
             {
-                printf("%s", args[j]);
-                if (args[j + 1] != NULL)
+                if (*(args[arg]) == '$')
+                {
+                    var_exists = 0;
+                    //local variables search
+                    for (int loc_var = 0; loc_var < loc_var_count; loc_var++)
+                    {
+                        if (strcmp(loc_vars[loc_var], (args[1] + 1)) == 0)
+                        {
+                            puts("here");
+                            printf("%s\n", loc_vars[loc_var]);
+                            var_exists = 1;
+                            break;
+                        }
+                    }
+
+                    // enviroment variables search
+                    for (int env_var = 0; environ[env_var] != NULL; env_var++)
+                    {
+                        if (strcmp(environ[env_var], (args[1] + 1)) == 0)
+                        {
+                            puts("here");
+                            printf("%s\n", environ[env_var]);
+                            var_exists = 1;
+                        }
+                    }
+                    if (var_exists == 0)
+                        putchar('\n');
+                }
+                printf("%s", args[arg]);
+                if (args[arg + 1] != NULL)
                     putchar(' ');
             }
-            printf("\n");
+            putchar('\n');
             status = 0;
             continue;
-        }
+            }  
         else if (strcmp(args[0], "exit") == 0)
         {
             printf("Good Bye\n");
@@ -89,8 +115,6 @@ int main(int argc, char **argv)
                 chdir(getenv("HOME"));
             else if (strcmp(args[1], "..") == 0)
                 chdir("..");
-            else if (strcmp(args[0], "export") == 0)
-                getenv(args[1]);
             else
             {
                 if (chdir(args[1]) != 0)
@@ -103,22 +127,39 @@ int main(int argc, char **argv)
             status = 0;
             continue;
         }
-        else if (char_detect('=', args[0]) == 0)
+        else if (assign_detect(args[0]) == 0)
         {
-            loc_vars[i] = malloc(strlen(args[0]) * sizeof(char));
-            if (loc_vars[i] == NULL)
+            if (loc_var_count >= max_vars)
+            {
+                max_vars *= 2;
+                char **temp = (char **) realloc(loc_vars, max_vars * sizeof(char *)); 
+                loc_vars = temp;
+                if (loc_vars == NULL)
+                {
+                    fprintf(stderr, "Memory allocation failed for the local variables array\n");
+                    return 1;
+                }
+            }
+            loc_vars[loc_var_count] = (char *) malloc(strlen(args[0]) * sizeof(char));
+            if (loc_vars[loc_var_count] == NULL)
             {
                 fprintf(stderr, "Memory allocation failed for the current local variables\n");
                 return 1;
             }
-            strcpy(loc_vars[i], args[0]);
+            strcpy(loc_vars[loc_var_count], args[0]);
+           
+            loc_var_count++;
             status = 0;
-            for (int j = 0; j < i; j++)
-            {
-                printf("%s ", loc_vars[j]);
-            }
             continue;
-
+        }
+        else if ((strcmp(args[0], "export") == 0) && args[1])
+        {
+            if (putenv(strdup(args[1])) != 0)
+            {
+                perror("Enviroment variable not added\n");
+            }
+            status = 0;
+            continue;
         }
         pid_t pid = fork();
 
@@ -164,20 +205,23 @@ int main(int argc, char **argv)
 
 
 /**
- * char_detect: checks whether a character exists in a string
+ * assign_detect: checks whether a character exists in a string
  * 
  * chr: the character we are looking for in the string
  * string: the string we are searching in
  * 
  * return: 0 in case of success (character found in string), otherwise it returns -1 
  */
-int char_detect(char chr, char *string)
+int assign_detect(char *string)
 {
+    int str_len = strlen(string);
     int detect_status = -1;
-    for (int i = 0; i < strlen(string); i++)
+    for (int i = 0; i < str_len; i++)
     {
-        if (*(string + i) == chr)
+        if (*(string + i) == '=')
         {
+            if (*(string + i + 1) == '\0')
+                break;
             detect_status = 0;
             break;
         }
