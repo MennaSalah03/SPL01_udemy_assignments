@@ -16,7 +16,6 @@ int main(int argc, char **argv)
     char *buffer =(char *) malloc(buff_size);
     char **args = (char **) malloc(args_num * sizeof(char *));
     char **loc_vars = (char **) malloc(max_vars * sizeof(char *));
-    int i = 0;
     int loc_var_count = 0;
     int var_exists = 0;
     int status = 0; // 0 is success
@@ -27,6 +26,11 @@ int main(int argc, char **argv)
     }
     if (args == NULL) {
         fprintf(stderr, "Memory allocation failed for arguments\n");
+        return 1;
+    }
+    if (buffer == NULL)
+    {
+        fprintf(stderr, "Memory allocation failed for buffer\n");
         return 1;
     }
 
@@ -46,55 +50,117 @@ int main(int argc, char **argv)
 
         buffer[strlen(buffer) - 1] = 0; // Remove newline
         if (strlen(buffer) == 0)
-        {
             continue; // Skip empty input
-        }
 
-        // Parse input into arguments
-        char *token = strtok(buffer, " ");
-        while (token != NULL) {
-            if (i >= args_num - 1)
+    int i = 0;
+    // Parse input into arguments
+    char *token = strtok(buffer, " ");
+    while (token != NULL)
+    {
+        if (i >= args_num - 1)
+        {
+            args_num *= 2;
+            char **new_args = (char **) realloc(args, args_num * sizeof(char *));
+            if (new_args == NULL)
             {
-                args_num *= 2;
-                args = (char **) realloc(args, args_num * sizeof(char *));
+                fprintf(stderr, "Memory allocation failed for buffer\n");
+                break;
             }
-            args[i++] = token;
-            token = strtok(NULL, " ");
+            args = new_args;
         }
-        args[i] = NULL; // Null-terminate args
+        char *dollar_sign = strchr(token, '$');
+        int found = 0;
+        if (dollar_sign != NULL )
+        {
+            // Handle case where '$' exists in the token
+            char *var_name = dollar_sign + 1; // Skip the '$'
+            char *equal_sign;
+            char *value = NULL;
+            int var_len = strlen(var_name);
+            if (var_len > 0)
+            {
+                // Search local variables
+                for (int loc_var = 0; loc_var < loc_var_count; loc_var++)
+                {
+                    equal_sign = strchr(loc_vars[loc_var], '=');
+                    if (equal_sign != NULL && strncmp(loc_vars[loc_var], var_name, var_len) == 0)
+                    {
+                        value = equal_sign + 1;
+                        found = 1;
+                        break;
+                    }
+                }
 
+                // Search environment variables if not found in local variables
+                if (!found) {
+                    value = getenv(var_name);
+                    if (value != NULL)
+                        found = 1;
+                }
+
+                // Handle case where variable was found
+                if (found)
+                {
+                    size_t prefix_len = dollar_sign - token;
+                    size_t arg_len = prefix_len + strlen(value) + 1;
+                    args[i] = (char *) malloc(arg_len * sizeof(char));
+                    if (args[i] == NULL)
+                    {
+                        perror("Memory allocation failed for arg\n");
+                        break;
+                    }
+
+                    // Copy the prefix (part before $) and the variable value
+                    strncpy(args[i], token, prefix_len);
+                    args[i][prefix_len] = '\0';  // Null-terminate the prefix
+                    strcat(args[i], value);
+                }
+                else //non-existant variable
+                {
+                    
+                    args[i] = (char *) malloc((strlen(token) - var_len) * sizeof(char));
+                    if (args[i] == NULL)
+                    {
+                        perror("Memory allocation failed for arg\n");
+                        break;       
+                    }
+                    strncpy(args[i], token, strlen(token) - var_len - 1);
+                }
+            }
+            else
+            {
+                args[i] = (char *) malloc(strlen(token) * sizeof(char));
+                if (args[i] == NULL)
+                {
+                    perror("Memory allocation failed for arg\n");
+                    break;
+                }
+                // Copy the prefix (part before $) and the variable value
+                strcpy(args[i], token);
+
+            }
+        }
+        else
+        {
+            // Case where no '$' in the token
+            size_t token_len = strlen(token);
+            args[i] = (char *) malloc((token_len + 1) * sizeof(char));
+            if (args[i] == NULL)
+            {
+                perror("Memory allocation failed for arg\n");
+                break;
+            }
+            strcpy(args[i], token);
+        }
+
+        token = strtok(NULL, " ");
+        i++;
+    }
+        args[i] = NULL; // Null-terminate args
         if (strcmp(args[0], "echo") == 0)
         {
             for (int arg = 1; args[arg] != NULL; arg++)
             {
-                if (*(args[arg]) == '$')
-                {
-                    var_exists = 0;
-                    //local variables search
-                    for (int loc_var = 0; loc_var < loc_var_count; loc_var++)
-                    {
-                        if (strcmp(loc_vars[loc_var], (args[1] + 1)) == 0)
-                        {
-                            puts("here");
-                            printf("%s\n", loc_vars[loc_var]);
-                            var_exists = 1;
-                            break;
-                        }
-                    }
-
-                    // enviroment variables search
-                    for (int env_var = 0; environ[env_var] != NULL; env_var++)
-                    {
-                        if (strcmp(environ[env_var], (args[1] + 1)) == 0)
-                        {
-                            puts("here");
-                            printf("%s\n", environ[env_var]);
-                            var_exists = 1;
-                        }
-                    }
-                    if (var_exists == 0)
-                        putchar('\n');
-                }
                 printf("%s", args[arg]);
                 if (args[arg + 1] != NULL)
                     putchar(' ');
@@ -112,13 +178,16 @@ int main(int argc, char **argv)
         else if (strcmp(args[0], "cd") == 0)
         {
             if (args[1] == NULL || strcmp(args[1], "~") == 0)
+            {
                 chdir(getenv("HOME"));
+            }
             else if (strcmp(args[1], "..") == 0)
+            {
                 chdir("..");
+            }
             else
             {
-                if (chdir(args[1]) != 0)
-                {
+                if (chdir(args[1]) != 0) {
                     printf("cd: %s: No such file or directory\n", args[1]);
                     status = -2;
                     continue;
@@ -137,8 +206,9 @@ int main(int argc, char **argv)
                 if (loc_vars == NULL)
                 {
                     fprintf(stderr, "Memory allocation failed for the local variables array\n");
-                    return 1;
+                    break;
                 }
+                loc_vars = temp;
             }
             loc_vars[loc_var_count] = (char *) malloc(strlen(args[0]) * sizeof(char));
             if (loc_vars[loc_var_count] == NULL)
@@ -161,40 +231,47 @@ int main(int argc, char **argv)
             status = 0;
             continue;
         }
-        pid_t pid = fork();
+        else
+        {
+            pid_t pid = fork();
 
-        if (pid < 0)
-        {
-            // Fork failed
-            perror("fork failed\n");
-            exit(1);
-        }
-        else if (pid == 0)
-        {
-            // Child process
-            if (execvp(args[0], args) == -1)
+            if (pid < 0)
             {
-                // execvp failed
-                printf("%s: command not found\n", args[0]);
-                status = -1;
-                break;
+                // Fork failed
+                perror("fork failed\n");
+                exit(1);
             }
-        }
-        else if (pid > 0)
-        {
-            // Parent process: wait for child if not a background command
-            waitpid(pid, &status, 0);
-            if (WIFEXITED(status))
+            else if (pid == 0)
             {
-                status = WEXITSTATUS(status);
+                // Child process
+                if (execvp(args[0], args) == -1)
+                {
+                    // execvp failed
+                    printf("%s: command not found\n", args[0]);
+                    status = -1;
+                    break;
+                }
             }
+            else if (pid > 0)
+            {
+                // Parent process: wait for child if not a background command
+                waitpid(pid, &status, 0);
+                if (WIFEXITED(status))
+                {
+                    status = WEXITSTATUS(status);
+                }
+            }    
         }
     } while (1);
 
     //free allocated memory for arguments
-    for (int j = 0; j < i - 1; j++)
+    for (int j = 0; j < loc_var_count; j++)
     {
         free(loc_vars[j]);
+    }
+    for (int j = 0; args[j] != NULL ; j++)
+    {
+        free(args[j]);
     }
     free(loc_vars);
     free(buffer);
