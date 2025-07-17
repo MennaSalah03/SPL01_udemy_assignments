@@ -7,7 +7,7 @@
 
 int assign_detect(char *string);
 void handle_reirection(char **args, char **redirecion_array, int redirect_count);
-int valid_redirect(char *arg);
+int redirection_op_idx(char *arg);
 extern char **environ;
 
 //nanoshell_main
@@ -25,7 +25,7 @@ int main(int argc, char **argv)
     int var_exists = 0;
     int redirect_count = 0;
     int status = 0; // 0 is success
-    int first_redir_idx = -1;
+    int first_redir_char_idx = -1;
 
     if (loc_vars == NULL)
     {
@@ -48,7 +48,8 @@ int main(int argc, char **argv)
         fprintf(stderr, "Memory allocation failed for redirections\n");
         return 1;
     }
-    do {
+    do
+    {
         printf("micro-mennux > ");
         fflush(stdout);
         if (fgets(buffer, buff_size, stdin) == NULL)
@@ -81,7 +82,10 @@ int main(int argc, char **argv)
                 }
                 args = new_args;
             }
+            // make temporary copy of token. This helps us allocate memory at the end of the loop
+            char *tmp_arg; 
             char *dollar_sign = strchr(token, '$');
+            int token_redir_idx = redirection_op_idx(token);
             int found = 0;
             if (dollar_sign != NULL)
             {
@@ -117,92 +121,118 @@ int main(int argc, char **argv)
                     {
                         size_t prefix_len = dollar_sign - token;
                         size_t arg_len = prefix_len + strlen(value) + 1;
-                        args[arg] = (char *) malloc(arg_len * sizeof(char));
-                        if (args[arg] == NULL)
+                        tmp_arg = (char *) malloc(arg_len * sizeof(char));
+                        if (tmp_arg == NULL)
                         {
                             perror("Memory allocation failed for arg\n");
                             break;
                         }
 
                         // Copy the prefix (part before $) and the variable value
-                        strncpy(args[arg], token, prefix_len);
-                        args[arg][prefix_len] = '\0';  // Null-terminate the prefix
-                        strcat(args[arg], value);
+                        strncpy(tmp_arg, token, prefix_len);
+                        tmp_arg[prefix_len] = '\0';  // Null-terminate the prefix
+                        strcat(tmp_arg, value);
                     }
                     else //non-existant variable
                     {
                         
-                        args[arg] = (char *) malloc((strlen(token) - var_len) * sizeof(char));
-                        if (args[arg] == NULL)
+                        tmp_arg = (char *) malloc((strlen(token) - var_len) * sizeof(char));
+                        if (tmp_arg == NULL)
                         {
                             perror("Memory allocation failed for arg\n");
                             break;       
                         }
-                        strncpy(args[arg], token, strlen(token) - var_len - 1);
+                        strncpy(tmp_arg, token, strlen(token) - var_len - 1);
                     }
                 }
                 else
                 {
-                    args[arg] = (char *) malloc(strlen(token) * sizeof(char));
-                    if (args[arg] == NULL)
+                    tmp_arg = (char *) malloc(strlen(token) * sizeof(char));
+                    if (tmp_arg == NULL)
                     {
                         perror("Memory allocation failed for arg\n");
                         break;
                     }
                     // Copy the prefix (part before $) and the variable value
-                    strcpy(args[arg], token);
+                    strcpy(tmp_arg, token);
                 }
             }
             else
             {
                 // Case where no '$' in the token
-                size_t token_len = strlen(token);
-                args[arg] = (char *) malloc((token_len + 1) * sizeof(char));
-                if (args[arg] == NULL)
+                tmp_arg = (char *) malloc((strlen(token) + 1) * sizeof(char));
+                if (tmp_arg == NULL)
                 {
                     perror("Memory allocation failed for arg\n");
                     break;
                 }
-                strcpy(args[arg], token);
+                strcpy(tmp_arg, token);
             }
-            token = strtok(NULL, " ");
-            arg++;
-        }
 
-        // checking for redirections and handling them
-        redirect_count = 0;
-        for (int i = 0; i < arg - 1; i++)
-        {
-            int redir_op_found = valid_redirect(args[i]);
-            if (redir_op_found)
+            if (token_redir_idx < 0)
             {
-                if (redirect_count > max_redirects)
+
+                int redir_parts = 1;
+                int one_or_2_chars = 1;
+
+                if (token_redir_idx - 1 > 0) // there's prefix
+                    redir_parts++;
+                if (tmp_arg[token_redir_idx] == '2')
+                     one_or_2_chars = 2;
+                if (tmp_arg[token_redir_idx + 1] != '\0') //there's a suffix
+                    redir_parts++;
+    
+                if (arg + redir_parts >= args_num - 1)
                 {
-                    max_redirects *= 2;
-                    char **temp_redirect_arr = realloc(redirection_arr, max_redirects * sizeof(char));
-                    if (temp_redirect_arr == NULL)
+                    args_num *= 2;
+                    char **new_args = (char **) realloc(args, args_num * sizeof(char *));
+                    if (new_args == NULL)
                     {
-                        fprintf(stderr, "Memory reallocation failed for redirection array");
+                        fprintf(stderr, "Memory allocation failed for buffer\n");
                         break;
                     }
-                    redirection_arr = temp_redirect_arr;
+                    args = new_args;            
                 }
-                redirection_arr[redirect_count] = (char *) malloc(strlen(token) * sizeof(char));
-                if (redirection_arr[redirect_count] == NULL)
+                if (token_redir_idx - 1 > 0)
                 {
-                    fprintf(stderr, "Memory allocation failed for redirection array");
+                    args[arg] = (char *) malloc(strlen(tmp_arg + token_redir_idx + 1) * sizeof(char));
+                    if (args[arg] == NULL)
+                    {
+                        fprintf(stderr, "Memory allocation failed for this arg\n");
+                        break;
+                    }
+                    strncpy(args[arg], tmp_arg, token_redir_idx + 1);
+                    arg++;
+                }
+                args[arg] = malloc (one_or_2_chars * sizeof(char));
+                if (args[arg] == NULL)
+                {
+                    fprintf(stderr, "Memory allocation failed for buffer\n");
                     break;
                 }
-                strcpy(redirection_arr[redirect_count++], token);
-            }
-        }
-        args[arg] = NULL; // Null-terminate args
-        if (strncmp(args[0], "echo", 4) == 0)
-        {
-            if (first_redir_idx >= 0)
+                strncpy(args[arg], tmp_arg, one_or_2_chars);
+                if (tmp_arg[token_redir_idx + 1] != '\0')
+                {                   
+                    arg++;
+                    int suff_len = strlen(tmp_arg) - (int) redirection_op_idx - one_or_2_chars;
+                    args[arg] = (char *) malloc (suff_len * sizeof(char));
+                    if (args[arg] == NULL)
+                    {
+                        fprintf(stderr, "Memory allocation failed for buffer\n");
+                        break;
+                    }
+                    strncpy(args[arg], tmp_arg + (int) redirection_op_idx - one_or_2_chars, suff_len);
+                }                
             {
-                
-            }
+            token = strtok(NULL, " ");
+            arg++;
+            free(tmp_arg);
+        }
+
+        args[arg] = NULL; // Null-terminate args
+        if (strcmp(args[0], "echo") == 0)
+        {
+
             for (int arg = 1; args[arg] != NULL; arg++)
             {
                 printf("%s", args[arg]);
@@ -213,13 +243,13 @@ int main(int argc, char **argv)
             status = 0;
             continue;
         }  
-        else if (strncmp(args[0], "exit", 4) == 0)
+        else if (strcmp(args[0], "exit") == 0)
         {
             printf("Good Bye\n");
             break;
             status = 0;
         }
-        else if (strncmp(args[0], "cd", 2) == 0)
+        else if (strcmp(args[0], "cd") == 0)
         {
             if (args[1] == NULL || strcmp(args[1], "~") == 0)
                 chdir(getenv("HOME"));
@@ -348,36 +378,15 @@ int assign_detect(char *string)
  */
 void handle_reirection(char **args, char ** redirection_array, int redirect_count)
 {
-    char saved_fds[3];
-    saved_fds[0] = dup(STDIN_FILENO);   // stdin
-    saved_fds[1] = dup(STDOUT_FILENO);  // stdout
-    saved_fds[2] = dup(STDERR_FILENO);  // stderr
 
-    for (int op = 0; op < redirect_count; op++)
-    {
-        if (strcmp(redirection_array[op], "<"))
-        {
-
-        }
-        else if (strcmp(redirection_array[op], ">"))
-        {
-
-        }
-        else if (strcmp(redirection_array[op], "2>"))
-        {
-
-        }
-    
-        
-    }
 }
 
 /**
- * valid redirect: Indicates whether an argument has a redirection
+ * redirection_op_idx: Indicates whether an argument has a redirection
  * 
  * returns: -1 if there's no valid redirection and the index of 
  */
-int valid_redirect(char *arg)
+int redirection_op_idx(char *arg)
 {
     int redir_idx = -1;
     for (int i = 0; i < strlen(arg); i++)
